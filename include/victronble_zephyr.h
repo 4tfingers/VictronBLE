@@ -56,6 +56,12 @@ int victronble_device_add(const bt_addr_le_t *addr,
 /** Stop monitoring a device. Returns -ENOENT if unknown. */
 int victronble_device_remove(const bt_addr_le_t *addr);
 
+/** Watch mode: when on, every Victron product advert heard — registered or
+ *  not — is logged (MAC, RSSI, record type, key-check byte). Discovery and
+ *  key debugging; unregistered devices are not nonce-deduped, so expect a
+ *  line or two per device per second. */
+void victronble_watch_set(bool on);
+
 /** Start the passive scan (bt_enable() must have succeeded first). */
 int victronble_start(void);
 

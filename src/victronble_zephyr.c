@@ -48,6 +48,12 @@ static struct k_mutex dev_mtx;
 static sys_slist_t callbacks = SYS_SLIST_STATIC_INIT(&callbacks);
 static struct victronble_stats stats;
 static bool scanning;
+static bool watch_mode;
+
+void victronble_watch_set(bool on)
+{
+	watch_mode = on;
+}
 
 static struct vb_device *find_device(const bt_addr_le_t *addr)
 {
@@ -80,8 +86,9 @@ static bool ad_cb(struct bt_data *data, void *user_data)
 	stats.adverts++;
 
 	/* Registry check is a handful of compares — cheap enough here, and
-	 * it keeps other people's Victrons out of the queue. */
-	if (find_device(ctx->addr) == NULL) {
+	 * it keeps other people's Victrons out of the queue. Watch mode
+	 * queues everything so the decode thread can log it. */
+	if (!watch_mode && find_device(ctx->addr) == NULL) {
 		return false;
 	}
 
@@ -121,8 +128,17 @@ static void decode_frame(const struct vb_frame *frame)
 	k_mutex_lock(&dev_mtx, K_FOREVER);
 	struct vb_device *dev = find_device(&frame->addr);
 
-	if (dev == NULL) { /* removed while queued */
+	if (dev == NULL) { /* unregistered (watch mode) or removed while queued */
 		k_mutex_unlock(&dev_mtx);
+		if (watch_mode && frame->len > 9) {
+			char mac[BT_ADDR_LE_STR_LEN];
+
+			bt_addr_le_to_str(&frame->addr, mac, sizeof(mac));
+			LOG_INF("watch: %s rssi %d type 0x%02x (%s) len %u keycheck 0x%02x",
+				mac, frame->rssi, frame->data[6],
+				victronble_device_type_str(frame->data[6]),
+				frame->len, frame->data[9]);
+		}
 		return;
 	}
 	memcpy(key, dev->key, sizeof(key));
@@ -137,7 +153,15 @@ static void decode_frame(const struct vb_frame *frame)
 
 	if (err != VICTRONBLE_OK) {
 		stats.errors++;
-		LOG_DBG("decode failed: %s", victronble_strerror(err));
+		if (watch_mode) {
+			char mac[BT_ADDR_LE_STR_LEN];
+
+			bt_addr_le_to_str(&frame->addr, mac, sizeof(mac));
+			LOG_INF("watch: %s decode failed: %s", mac,
+				victronble_strerror(err));
+		} else {
+			LOG_DBG("decode failed: %s", victronble_strerror(err));
+		}
 		SYS_SLIST_FOR_EACH_CONTAINER(&callbacks, cb, node) {
 			if (cb->decode_error != NULL) {
 				cb->decode_error(&frame->addr, err);
@@ -161,8 +185,18 @@ static void decode_frame(const struct vb_frame *frame)
 	k_mutex_unlock(&dev_mtx);
 
 	stats.decoded++;
-	LOG_DBG("%s record, nonce 0x%04x, rssi %d",
-		victronble_device_type_str(rec.type), rec.nonce, frame->rssi);
+	if (watch_mode) {
+		char mac[BT_ADDR_LE_STR_LEN];
+
+		bt_addr_le_to_str(&frame->addr, mac, sizeof(mac));
+		LOG_INF("watch: %s decoded %s nonce 0x%04x rssi %d", mac,
+			victronble_device_type_str(rec.type), rec.nonce,
+			frame->rssi);
+	} else {
+		LOG_DBG("%s record, nonce 0x%04x, rssi %d",
+			victronble_device_type_str(rec.type), rec.nonce,
+			frame->rssi);
+	}
 
 	SYS_SLIST_FOR_EACH_CONTAINER(&callbacks, cb, node) {
 		if (cb->record != NULL) {

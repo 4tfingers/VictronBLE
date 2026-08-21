@@ -72,3 +72,4 @@ venv/
 env/
 
 *.tar.gz
+tests/vectors/victronble_test

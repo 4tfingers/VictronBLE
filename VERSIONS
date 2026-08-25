@@ -38,9 +38,32 @@ Pure C core + Zephyr support. One repo now serves three ecosystems: Arduino
   a west project or via `-DZEPHYR_EXTRA_MODULES=<path>`; see
   `docs/ZEPHYR_PORT.md` for the porting plan this implements.
 
+- Watch mode (`victronble_watch_set(true)`): logs every Victron product
+  advert heard, registered or not — MAC, RSSI, record type, length and
+  key-check byte. Reads only the plaintext header, so it needs no keys.
+  Discovery and key debugging; `samples/scan` is built around it.
+
+### Samples and examples
+- `samples/observer/` — Zephyr reference app: known devices from a table of
+  MAC + key, full field decode for every device type, and a 30-second stats
+  line for diagnosing a quiet console. Builds for `nrf52840dk/nrf52840` and
+  `rak4631/nrf52840`.
+- `samples/scan/` — Zephyr discovery app: watch mode only, no keys or
+  addresses needed. Run it first to find what you have.
+- Both carry a `sample.yaml`, so `west twister -T samples` build-tests them.
+- `examples/NativeDecode/` — decode an advertisement on a PC with plain
+  `make`. No board, no BLE stack; exercises the pure C core directly, which
+  makes it useful for checking a key or a sniffer capture.
+
 ### Fixed
 - `library.properties` URL now points at the real repo (gitea) instead of a
   nonexistent GitHub mirror.
+- `library.json` no longer claims the `espidf` framework. There is no ESP-IDF
+  BLE backend — `src/esp32/` is Arduino/Bluedroid only — so the claim was
+  never true. The pure C core works fine under ESP-IDF; scanning is the
+  missing piece, and a native backend is future work.
+- `QUICK_START.md` pointed at `examples/MultiDevice/main.cpp`; the file is at
+  `examples/MultiDevice/src/main.cpp`.
 
 ## 0.6.0 (2026-06-04)
 

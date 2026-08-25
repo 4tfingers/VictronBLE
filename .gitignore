@@ -72,4 +72,12 @@ venv/
 env/
 
 *.tar.gz
+# Compiled host binaries
 tests/vectors/victronble_test
+examples/NativeDecode/nativedecode
+
+# Zephyr build trees
+samples/*/build/
+build/
+twister-out/
+twister-out.*/

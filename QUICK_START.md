@@ -43,7 +43,7 @@ your-project/
 
 ### Step 3: Update the Example Code
 
-Open `examples/MultiDevice/main.cpp` and update these lines with YOUR device information:
+Open `examples/MultiDevice/src/main.cpp` and update these lines with YOUR device information:
 
 ```cpp
 // Replace these with YOUR actual device details:
@@ -81,7 +81,7 @@ pio run -t upload && pio device monitor
 ```
 
 #### Arduino IDE:
-1. Open `examples/MultiDevice/main.cpp` as an .ino file
+1. Open `examples/MultiDevice/src/main.cpp` as an .ino file
 2. Select your ESP32 board from Tools → Board
 3. Select your COM port from Tools → Port
 4. Click Upload

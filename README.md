@@ -1,22 +1,22 @@
 # VictronBLE
 
-A portable Arduino library for reading Victron Energy device data via Bluetooth Low Energy (BLE) advertisements — runs on both **ESP32** and **nRF52840**.
+A portable library for reading Victron Energy device data via Bluetooth Low Energy (BLE) advertisements. Use it as an **Arduino** library on ESP32 and nRF52840, as a **Zephyr** module on any Bluetooth-capable board, or drop the **pure C99 core** into anything else.
 
-v0.6 adds **multi-platform support** (ESP32 + nRF52840) via a hardware-abstracted BLE backend and dependency-free bundled crypto. (v0.5 brought the decoding accuracy fixes and AC charger support; v0.4 reworked the internals — function-pointer callback API, reduced memory usage, non-blocking scanning.) See [VERSIONS](VERSIONS) for full details. A stable **v1.0** release with a consistent, long-term API is coming soon.
+v0.7 splits the library into a **dependency-free pure C99 core** (decode + decrypt, no BLE stack, no allocation, no I/O) plus thin platform layers: the Arduino C++ wrapper, and a **Zephyr module** with its own observer API. (v0.6 added multi-platform support for ESP32 + nRF52840; v0.5 brought the decoding accuracy fixes and AC charger support.) See [VERSIONS](VERSIONS) for full details. A stable **v1.0** release with a consistent, long-term API is coming soon.
 
 ---
 
 Why another library? Most of the Victron BLE examples are built into other frameworks (e.g. ESPHome) or are locked to a single chip. The goal here is one library that works across ESP32 and nRF52 (and is easy to extend to more), usable standalone or inside ESPHome and other frameworks, with a long-term plan to move others onto it and improve the code with many eyes.
 
-Supports **ESP32** (original, S and C series — tested on older ESP32, ESP32-S3 and ESP32-C3) and **nRF52840** (Adafruit/Seeed Bluefruit core, e.g. Seeed XIAO nRF52840). All decoding and decryption is shared; only a thin BLE scanning backend is platform-specific (`src/esp32/`, `src/nrf52/`), so other chipsets can be added by implementing one more backend.
+Under Arduino it supports **ESP32** (original, S and C series — tested on older ESP32, ESP32-S3 and ESP32-C3) and **nRF52840** (Adafruit/Seeed Bluefruit core, e.g. Seeed XIAO nRF52840). Under **Zephyr** it is board-agnostic — anything with a Bluetooth controller and the observer role (tested on nRF52840DK and RAK4631). All decoding and decryption is shared; only the BLE scanning layer is platform-specific, so other stacks can be added by implementing one more backend.
 
 ## Features
 
-- ✅ **Multi-Platform**: One API for ESP32 and nRF52840; backend chosen at compile time
+- ✅ **Multi-Platform**: ESP32 and nRF52840 under Arduino, any Bluetooth board under Zephyr
 - ✅ **No External Dependencies**: Bundled AES-128-CTR — no mbedTLS or crypto library needed
 - ✅ **Multiple Device Support**: Monitor multiple Victron devices simultaneously
 - ✅ **All Device Types**: Solar chargers, battery monitors, inverters, DC-DC converters, AC chargers
-- ✅ **Framework Friendly**: Works with Arduino (and ESP-IDF on ESP32)
+- ✅ **Framework Friendly**: Arduino library, Zephyr module, or the bare C core
 - ✅ **Clean API**: Simple, intuitive interface with callback support
 - ✅ **No Pairing Required**: Reads BLE advertisement data directly
 - ✅ **Low Power**: Uses passive BLE scanning
@@ -35,11 +35,13 @@ Supports **ESP32** (original, S and C series — tested on older ESP32, ESP32-S3
 ## Hardware Requirements
 
 - An ESP32 (original / S / C series) **or** an nRF52840 board (Adafruit/Seeed
-  Bluefruit core — e.g. Seeed XIAO nRF52840)
+  Bluefruit core — e.g. Seeed XIAO nRF52840) for the Arduino API
+- Or any Zephyr-supported board with a Bluetooth controller (tested on
+  nRF52840DK and RAK4631)
 - Victron devices with BLE "Instant Readout" enabled
 
-The BLE backend is selected automatically at compile time from the board's
-architecture — no code changes are needed to switch platforms.
+Under Arduino the BLE backend is selected automatically at compile time from
+the board's architecture — no code changes are needed to switch platforms.
 
 ## Installation
 
@@ -86,6 +88,78 @@ example's `platformio.ini` includes ready-made ESP32 and nRF52 environments.
 1. Download or clone this repository
 2. Move the `VictronBLE` folder to your Arduino libraries directory
 3. Restart Arduino IDE
+
+### Zephyr
+
+The repository is a Zephyr module (`zephyr/module.yml`), so Zephyr finds it
+automatically once it is in your workspace. Add it to your `west.yml`:
+
+```yaml
+manifest:
+  remotes:
+    - name: sh3d
+      url-base: https://gitea.sh3d.com.au/Sh3d
+  projects:
+    - name: VictronBLE
+      remote: sh3d
+      revision: main
+      path: modules/lib/victronble
+```
+
+Then `west update`, and enable it in your `prj.conf`:
+
+```
+CONFIG_BT=y
+CONFIG_BT_OBSERVER=y
+CONFIG_VICTRONBLE=y
+CONFIG_CBPRINTF_FP_SUPPORT=y   # only if you print the float fields
+```
+
+`CONFIG_VICTRONBLE` depends on `CONFIG_BT_OBSERVER`, and the application must
+call `bt_enable()` before `victronble_start()` — the library scans, it does not
+own the Bluetooth stack.
+
+To build against a local checkout that is not in the manifest, point Zephyr at
+it directly instead:
+
+```sh
+west build -b nrf52840dk/nrf52840 -d /tmp/build /path/to/app \
+    -- -DZEPHYR_EXTRA_MODULES=/path/to/VictronBLE
+```
+
+#### Zephyr API
+
+```c
+#include "victronble_zephyr.h"
+
+int  victronble_cb_register(struct victronble_cb *cb);
+int  victronble_device_add(const bt_addr_le_t *addr, const uint8_t key[16]);
+int  victronble_device_remove(const bt_addr_le_t *addr);
+void victronble_watch_set(bool on);      /* log every advert, no keys needed */
+int  victronble_start(void);
+int  victronble_stop(void);
+void victronble_get_stats(struct victronble_stats *out);
+```
+
+Records are decoded on a dedicated thread, not the Bluetooth RX thread, so
+your `record` callback can log freely without stalling the controller.
+
+#### Kconfig options
+
+| Option | Default | Purpose |
+|---|---|---|
+| `VICTRONBLE_MAX_DEVICES` | 4 | Size of the monitored-device registry |
+| `VICTRONBLE_QUEUE_DEPTH` | 8 | Adverts buffered between the RX and decode threads |
+| `VICTRONBLE_THREAD_STACK_SIZE` | 2048 | Decode thread stack |
+| `VICTRONBLE_THREAD_PRIORITY` | 10 | Decode thread priority (preemptible) |
+| `VICTRONBLE_DEDUP` | y | Suppress repeated adverts by nonce |
+| `VICTRONBLE_SCAN_INTERVAL` | 2048 | Scan interval, 0.625 ms units (1.28 s) |
+| `VICTRONBLE_SCAN_WINDOW` | 18 | Scan window, 0.625 ms units (11.25 ms) |
+| `VICTRONBLE_LOG_LEVEL` | — | Standard Zephyr per-module log level |
+
+Working applications are in [`samples/`](samples/) — start with
+[`samples/scan`](samples/scan/) to discover your devices, then
+[`samples/observer`](samples/observer/) to read them.
 
 ## Quick Start
 
@@ -379,6 +453,12 @@ void setup() {
 5. **Disconnect VictronConnect**: App must be disconnected from device
 6. **Enable debug**: `victron.setDebug(true);` to see detailed logs
 
+On **Zephyr**, the stats line from `victronble_get_stats()` narrows this down
+fast. If `adverts` climbs but `queued` and `decoded` stay at zero, the device
+is being heard but never matched: check the Bluetooth address **type**, which
+must be `random` for Victron devices, not `public`. Or run `samples/scan`,
+which needs neither addresses nor keys.
+
 ### Decryption Failures
 
 - Encryption key must match exactly
@@ -407,31 +487,45 @@ Based on official [Victron BLE documentation](https://www.victronenergy.com/live
 The library keeps everything platform-independent except the BLE radio:
 
 ```
+include/
+├── victronble.h            Pure C99 core API — decode one advert, no I/O
+└── victronble_zephyr.h     Zephyr observer API
 src/
-├── VictronBLE.{h,cpp}      Common API, device management, payload decoding
+├── victronble_core.c       Decrypt + parse; no BLE, no alloc, reentrant
 ├── crypto/vble_aes.{h,c}   Bundled AES-128-CTR (no external dependency)
+├── VictronBLE.{h,cpp}      Arduino C++ wrapper over the core
 ├── esp32/                  ESP32 backend  — Bluedroid BLEScan
-└── nrf52/                  nRF52 backend  — Bluefruit passive scan
+├── nrf52/                  nRF52 backend  — Bluefruit passive scan
+└── victronble_zephyr.c     Zephyr backend — passive scan + decode thread
+CMakeLists.txt, Kconfig     Zephyr module glue (ignored by PlatformIO)
 ```
 
+- **A portable core.** `victronble_core.c` is C99 with no dependencies: no
+  Arduino, no BLE stack, no allocation, no I/O, reentrant. Give it a
+  manufacturer-data blob and a key, get a record back. Everything else —
+  scanning, device registries, rate limiting, logging — belongs to the
+  platform layers. `examples/NativeDecode` runs it on a PC.
 - **One BLE HAL.** Each backend extracts the manufacturer data, MAC and RSSI
-  from a scan result and calls the shared `onAdvertisement()`. All decryption and
-  decoding is common code. The correct backend is selected automatically at
-  compile time from the board architecture (`ARDUINO_ARCH_ESP32` /
-  `ARDUINO_ARCH_NRF52`) — there is nothing platform-specific in your sketch.
+  from a scan result and hands it to the core. Under Arduino the correct
+  backend is selected automatically at compile time from the board
+  architecture (`ARDUINO_ARCH_ESP32` / `ARDUINO_ARCH_NRF52`) — there is
+  nothing platform-specific in your sketch. Under Zephyr the backend is
+  `victronble_zephyr.c`, selected by `CONFIG_VICTRONBLE`.
 - **No external crypto.** AES-128-CTR is bundled (a trimmed, NIST-verified
   tiny-AES), so the library no longer depends on mbedTLS or any crypto library
   and builds identically on every target.
 - **Adding a platform** means implementing one more backend (scan → extract →
-  `onAdvertisement`); the rest is reused unchanged.
+  hand to the core); the rest is reused unchanged.
 
-> The data callback runs in the BLE event context (the scan task on ESP32, the
-> SoftDevice/Bluefruit handler on nRF52). Keep work in the callback light — copy
-> what you need and process it from `loop()`.
+> Under Arduino the data callback runs in the BLE event context (the scan task
+> on ESP32, the SoftDevice/Bluefruit handler on nRF52). Keep work in the
+> callback light — copy what you need and process it from `loop()`.
+> Under Zephyr this does not apply: records are delivered from the library's
+> own decode thread, so callbacks may log and block.
 
 ## Examples
 
-See the `examples/` directory for:
+Arduino / PlatformIO, in [`examples/`](examples/):
 
 - **MultiDevice**: Monitor multiple devices with callbacks. One sketch, multiple
   PlatformIO environments — builds for ESP32 (`esp32dev`, …) and nRF52840
@@ -440,6 +534,18 @@ See the `examples/` directory for:
 - **Repeater**: Collect BLE data and re-transmit via ESPNow broadcast
 - **Receiver**: Receive ESPNow packets from a Repeater and display data
 - **FakeRepeater**: Generate test ESPNow packets without real Victron hardware
+
+Zephyr, in [`samples/`](samples/):
+
+- **scan**: List every Victron device advertising nearby. No keys needed —
+  run this first to find your MAC addresses.
+- **observer**: Monitor known devices and log every decoded field. The
+  reference for the Zephyr API.
+
+No hardware at all, in [`examples/`](examples/):
+
+- **NativeDecode**: Decode an advertisement on your PC with plain `make`.
+  Good for checking a key or a sniffer capture before you flash anything.
 
 ## Contributing
 

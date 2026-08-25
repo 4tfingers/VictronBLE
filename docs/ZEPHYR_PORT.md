@@ -344,12 +344,13 @@ victronble/
 ├── src/
 │   ├── victronble_core.c     # pure C99, no dependencies
 │   ├── victronble_aes_sw.c
-│   ├── victronble_aes_psa.c
+│   ├── victronble_aes_psa.c  # not implemented — Kconfig ships software only
 │   ├── victronble_zephyr.c   # scan + workqueue + device registry
 │   ├── VictronBLE.cpp        # Arduino wrapper
 │   └── ble_backend_*.cpp     # NimBLE / Bluefruit
 ├── samples/
-│   └── observer/             # Zephyr sample app
+│   ├── observer/             # Zephyr sample app — known devices, full records
+│   └── scan/                 # Zephyr sample app — watch mode discovery
 └── tests/
     └── vectors/              # host-runnable, also Ztest under native_sim
 ```
@@ -520,11 +521,17 @@ configure — it will pay for itself during the record-type work.
 
 ## Stage 5 — Publish
 
-1. `samples/observer/` that builds for `nrf52840dk/nrf52840` and `rak4631/nrf52840`.
+1. **Done.** `samples/observer/` and `samples/scan/` build for
+   `nrf52840dk/nrf52840` and `rak4631/nrf52840` (verified against Zephyr
+   v4.4.0), each with a `sample.yaml` so twister can build-test them:
+   `west twister -T samples -p nrf52840dk/nrf52840 -p rak4631/nrf52840`.
+   `examples/NativeDecode/` covers the no-hardware case with plain `make`.
    A sample that builds for a DK anyone owns is what makes people try it.
 2. GitHub Actions: host vector tests, plus `west build` for both boards and `native_sim`.
-3. README with the west manifest snippet up front — the first question every Zephyr user
-   has is how to add it to their workspace:
+3. **Done.** README has a Zephyr section with the west manifest snippet, the
+   `ZEPHYR_EXTRA_MODULES` alternative for local development, the API summary
+   and the Kconfig table — the first question every Zephyr user has is how to
+   add it to their workspace:
 
 ```yaml
 manifest:

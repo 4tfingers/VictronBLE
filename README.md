@@ -88,6 +88,8 @@ example's `platformio.ini` includes ready-made ESP32 and nRF52 environments.
 1. Download or clone this repository
 2. Move the `VictronBLE` folder to your Arduino libraries directory
 3. Restart Arduino IDE
+4. Edits have been made to some includes and file names to allow for windows
+   inability to have files of the same name with only the case changed.
 
 ### Zephyr
 
